@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Heart, Pause, Play, Sparkles, X } from 'lucide-react';
+import { Heart, Pause, Play, Sparkles, X, HeartCrack, Frown } from 'lucide-react';
 
 // Floating Heart Component
 const FloatingHeart = ({ delay, duration, size, left, animationType }: { 
@@ -107,13 +107,28 @@ const GlowOrbs = () => {
   );
 };
 
+// Tracking function (placeholder)
+const trackCurrentChoice = (choice: 'yes' | 'no') => {
+  console.log(`User chose: ${choice}`);
+  // Future: Send to backend or analytics
+  // Example: fetch('/api/track', { method: 'POST', body: JSON.stringify({ choice }) });
+};
+
+import { createPortal } from 'react-dom';
+
 // Hero Section
-const HeroSection = ({ onYesClick, setMusicPlaying }: { 
+const HeroSection = ({ onYesClick, onNoClick, setMusicPlaying }: { 
   onYesClick: () => void; 
+  onNoClick: () => void;
   setMusicPlaying: (playing: boolean) => void;
 }) => {
   const [titleVisible, setTitleVisible] = useState(false);
   const [buttonsVisible, setButtonsVisible] = useState(false);
+  const [noButtonPos, setNoButtonPos] = useState<{ top: string; left: string; position: 'fixed' | 'static'; transform?: string }>({ 
+    top: 'auto', 
+    left: 'auto', 
+    position: 'static' 
+  });
   const noButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -125,23 +140,102 @@ const HeroSection = ({ onYesClick, setMusicPlaying }: {
     };
   }, []);
 
-  const handleNoButtonHover = useCallback(() => {
+  const handleNoButtonMove = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
     if (noButtonRef.current) {
       const button = noButtonRef.current;
-      const maxX = window.innerWidth - button.offsetWidth - 100;
-      const maxY = window.innerHeight - button.offsetHeight - 100;
-      const randomX = Math.random() * maxX - maxX / 2;
-      const randomY = Math.random() * maxY - maxY / 2;
-      button.style.transform = `translate(${randomX}px, ${randomY}px)`;
+      const rect = button.getBoundingClientRect();
+      const buttonCenterX = rect.left + rect.width / 2;
+      const buttonCenterY = rect.top + rect.height / 2;
+
+      let mouseX = buttonCenterX;
+      let mouseY = buttonCenterY;
+
+      if (e) {
+        if ('touches' in e) {
+           mouseX = e.touches[0].clientX;
+           mouseY = e.touches[0].clientY;
+        } else {
+           mouseX = (e as React.MouseEvent).clientX;
+           mouseY = (e as React.MouseEvent).clientY;
+        }
+      }
+
+      // Calculate vector from mouse to button center
+      let deltaX = buttonCenterX - mouseX;
+      let deltaY = buttonCenterY - mouseY;
+
+      // If exactly on top (rare), move randomly
+      if (deltaX === 0 && deltaY === 0) {
+          deltaX = Math.random() - 0.5;
+          deltaY = Math.random() - 0.5;
+      }
+
+      // Normalize
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      const normalizedX = deltaX / distance;
+      const normalizedY = deltaY / distance;
+
+      // Jump distance (prevent too far, prevent too close)
+      const jumpDist = 150 + Math.random() * 100;
+      
+      let newX = buttonCenterX + normalizedX * jumpDist;
+      let newY = buttonCenterY + normalizedY * jumpDist;
+
+      // Add some "zig zag" randomness
+      newX += (Math.random() - 0.5) * 50;
+      newY += (Math.random() - 0.5) * 50;
+
+      // Boundary checks (keep fully on screen with padding)
+      const padding = 50;
+      const maxW = window.innerWidth - rect.width - padding;
+      const maxH = window.innerHeight - rect.height - padding;
+
+      // If hitting wall, bounce back
+      if (newX < padding) newX = padding + Math.random() * 50;
+      if (newX > maxW) newX = maxW - Math.random() * 50;
+      if (newY < padding) newY = padding + Math.random() * 50;
+      if (newY > maxH) newY = maxH - Math.random() * 50;
+
+      const rotation = Math.random() * 40 - 20;
+
+      setNoButtonPos({
+        position: 'fixed',
+        left: `${newX}px`,
+        top: `${newY}px`,
+        transform: `rotate(${rotation}deg)`
+      });
     }
   }, []);
 
   const handleYesClick = () => {
     setMusicPlaying(true);
+    trackCurrentChoice('yes');
     onYesClick();
   };
 
+  const handleNoClick = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    trackCurrentChoice('no');
+    onNoClick();
+  };
+
   const titleWords = ["Will", "you", "be", "my", "Valentine?"];
+
+  const noButton = (
+    <button
+      ref={noButtonRef}
+      onMouseEnter={handleNoButtonMove}
+      onTouchStart={handleNoButtonMove}
+      onClick={handleNoClick}
+      className="btn-no px-12 py-5 bg-transparent border-2 border-valentine-pink text-valentine-rose font-medium text-xl rounded-full hover:bg-valentine-cream flex items-center gap-3 transition-all duration-200 cursor-pointer"
+      style={{ 
+        zIndex: 9999, // Ensure high z-index
+        ...noButtonPos
+      }}
+    >
+      <span>No</span>
+    </button>
+  );
 
   return (
     <section className="min-h-screen flex flex-col items-center justify-center relative z-10 px-4">
@@ -207,14 +301,11 @@ const HeroSection = ({ onYesClick, setMusicPlaying }: {
             <Sparkles className="absolute -top-2 -right-2 w-6 h-6 text-valentine-gold opacity-0 group-hover:opacity-100 transition-opacity" />
           </button>
 
-          {/* No Button */}
-          <button
-            ref={noButtonRef}
-            onMouseEnter={handleNoButtonHover}
-            className="btn-no px-12 py-5 bg-transparent border-2 border-valentine-pink text-valentine-rose font-medium text-xl rounded-full hover:bg-valentine-cream flex items-center gap-3"
-          >
-            <span>No</span>
-          </button>
+          {/* No Button - Portal if fixed */}
+          {noButtonPos.position === 'fixed' 
+            ? createPortal(noButton, document.body) 
+            : noButton
+          }
         </div>
       </div>
     </section>
@@ -511,6 +602,57 @@ const SuccessPopup = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
   );
 };
 
+// No Selection Popup
+const NoPopup = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Popup Content */}
+      <div className="popup-animate relative bg-white rounded-3xl p-8 sm:p-12 max-w-lg mx-4 text-center shadow-2xl border-4 border-gray-100">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 transition-colors"
+        >
+          <X className="w-6 h-6 text-gray-500" />
+        </button>
+
+        <div className="mb-6">
+          <HeartCrack 
+            className="w-20 h-20 text-gray-400 mx-auto animate-pulse" 
+            fill="currentColor"
+            fillOpacity="0.2"
+          />
+        </div>
+
+        <h3 className="font-display text-3xl sm:text-4xl font-bold text-gray-800 mb-4">
+          You tried so hard to tap No... 💔
+        </h3>
+
+        <p className="font-script text-2xl text-gray-500 mb-6">
+          But my love is stubborn!
+        </p>
+
+        <div className="bg-gray-50 p-4 rounded-xl mb-6">
+           <p className="font-body text-lg text-gray-600">
+            Please reconsider? 🥺
+          </p>
+        </div>
+        
+        <div className="flex justify-center gap-4">
+            <Frown className="w-8 h-8 text-gray-400 animate-bounce" />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Music Player Button
 const MusicPlayer = ({ isPlaying, onToggle }: { isPlaying: boolean; onToggle: () => void }) => {
   return (
@@ -533,6 +675,7 @@ const MusicPlayer = ({ isPlaying, onToggle }: { isPlaying: boolean; onToggle: ()
 // Main App
 function App() {
   const [showPopup, setShowPopup] = useState(false);
+  const [showNoPopup, setShowNoPopup] = useState(false);
   const [musicPlaying, setMusicPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -576,6 +719,7 @@ function App() {
       <main className="relative z-10">
         <HeroSection 
           onYesClick={() => setShowPopup(true)} 
+          onNoClick={() => setShowNoPopup(true)}
           setMusicPlaying={setMusicPlaying}
         />
         <MemorySection />
@@ -585,8 +729,11 @@ function App() {
       {/* Music Player */}
       <MusicPlayer isPlaying={musicPlaying} onToggle={toggleMusic} />
 
-      {/* Success Popup */}
+      {/* Yes Success Popup */}
       <SuccessPopup isOpen={showPopup} onClose={() => setShowPopup(false)} />
+      
+      {/* No Selection Popup */}
+      <NoPopup isOpen={showNoPopup} onClose={() => setShowNoPopup(false)} />
     </div>
   );
 }
